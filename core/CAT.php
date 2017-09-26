@@ -1,11 +1,13 @@
 <?php
 
-/* * ********************************************************************************
- * (c) 2011-15 GÉANT on behalf of the GN3, GN3plus and GN4 consortia
- * License: see the LICENSE file in the root directory
- * ********************************************************************************* */
-?>
-<?php
+/*
+ * ******************************************************************************
+ * Copyright 2011-2017 DANTE Ltd. and GÉANT on behalf of the GN3, GN3+, GN4-1 
+ * and GN4-2 consortia
+ *
+ * License: see the web/copyright.php file in the file structure
+ * ******************************************************************************
+ */
 
 /**
  * 
@@ -19,10 +21,12 @@
 /**
  * necessary includes
  */
-session_start();
-require_once("Helper.php");
-require_once("Federation.php");
-require_once(dirname(__DIR__) . "/config/_config.php");
+
+namespace core;
+
+if (session_status() != PHP_SESSION_ACTIVE) {
+    session_start();
+}
 
 /**
  * Define some variables which need to be globally accessible
@@ -33,7 +37,7 @@ require_once(dirname(__DIR__) . "/config/_config.php");
  *
  * @package Developer
  */
-class CAT extends Entity {
+class CAT extends \core\common\Entity {
 
     /**
      * which version is this?
@@ -48,18 +52,40 @@ class CAT extends Entity {
     const RELEASE_VERSION = FALSE;
     const USER_API_VERSION = 2;
 
+    /**
+     * trying to keep up with the name changes of copyright holder and consortia
+     * updating those on *one* place should change display everywhere!
+     */
+    const COPYRIGHT_HOLDER = "DANTE Ltd. and G&Eacute;ANT";
+    const COPYRIGHT_CONSORTIA = "the GN3, GN3+, GN4-1 and GN4-2 consortia";
+    const COPYRIGHT_MIN_YEAR = 2011;
+    const COPYRIGHT_MAX_YEAR = 2017;
+
     /*
      * This is the user-displayed string; controlled by the four options above
      * It is generated in the constructor.
      * 
      * @var string
      */
+
     public $CAT_VERSION_STRING;
-    
+
     /*
      * The entire copyright line, generated in constructor
      */
     public $CAT_COPYRIGHT;
+
+    /**
+     * the custom displayable variant of the term 'federation'
+     * @var string
+     */
+    public $nomenclature_fed;
+
+    /**
+     * the custom displayable variant of the term 'institution'
+     * @var string
+     */
+    public $nomenclature_inst;
 
     /**
      * all known federation, in an array with ISO short name as an index, and localised version of the pretty-print name as value.
@@ -69,7 +95,7 @@ class CAT extends Entity {
      * @var array of all known federations
      */
     public $knownFederations;
-    
+
     /**
      * the default database to query in this class.
      */
@@ -83,23 +109,40 @@ class CAT extends Entity {
     public function __construct() {
         parent::__construct();
         $olddomain = $this->languageInstance->setTextDomain("user");
-        $this->CAT_VERSION_STRING = _("Unreleased SVN Revision");
+        $this->CAT_VERSION_STRING = _("Unreleased <a href='https://github.com/GEANT/CAT/tree/master/Changes.md'>Git Revision</a>");
         if (CAT::RELEASE_VERSION) {
             $temp_version = "CAT-" . CAT::VERSION_MAJOR . "." . CAT::VERSION_MINOR;
+            $branch = "release_" . CAT::VERSION_MAJOR . "_" . CAT::VERSION_MINOR;
             if (CAT::VERSION_PATCH != 0) {
                 $temp_version .= "." . CAT::VERSION_PATCH;
             }
             if (CAT::VERSION_EXTRA != "") {
                 $temp_version .= "-" . CAT::VERSION_EXTRA;
             }
-            $this->CAT_VERSION_STRING = sprintf(_("Release %s"), $temp_version);
+            $this->CAT_VERSION_STRING = sprintf(_("Release <a href='%s'>%s</a>"), "https://github.com/GEANT/CAT/tree/" . $branch . "/Changes.md", $temp_version);
         }
-        $this->CAT_COPYRIGHT = CONFIG['APPEARANCE']['productname'] . " - " . $this->CAT_VERSION_STRING . " &copy; 2011-16 Dante Ltd. and G&Eacute;ANT on behalf of the GN3, GN3plus, GN4-1 and GN4-2 consortia and others <a href='copyright.php'>Full Copyright and Licenses</a>";
+        $this->CAT_COPYRIGHT = CONFIG['APPEARANCE']['productname'] . " - " . $this->CAT_VERSION_STRING . " &copy; " . CAT::COPYRIGHT_MIN_YEAR . "-" . CAT::COPYRIGHT_MAX_YEAR . " " . CAT::COPYRIGHT_HOLDER . "<br/>on behalf of " . CAT::COPYRIGHT_CONSORTIA . "; and others <a href='copyright.php'>Full Copyright and Licenses</a>";
         $this->languageInstance->setTextDomain($olddomain);
-        
-                /* Federations are created in DB with bootstrapFederation, and listed via listFederations
+
+        /* Federations are created in DB with bootstrapFederation, and listed via listFederations
          */
         $oldlocale = $this->languageInstance->setTextDomain('core');
+
+        // some config elements are displayable. We need some dummies to 
+        // translate the common values for them. If a deployment chooses a 
+        // different wording, no translation, sorry
+
+        $dummy_NRO = _("National Roaming Operator");
+        $dummy_inst1 = _("identity provider");
+        $dummy_inst2 = _("organisation");
+        $dummy_inst3 = _("Identity Provider");
+        // and do something useless with the strings so that there's no "unused" complaint
+        if (strlen($dummy_NRO . $dummy_inst1 . $dummy_inst2 . $dummy_inst3) < 0 ) {
+            throw new Exception("Strings are usually not shorter than 0 characters. We've encountered a string blackhole.");
+        }
+
+        $this->nomenclature_fed = _(CONFIG_CONFASSISTANT['CONSORTIUM']['nomenclature_federation']);
+        $this->nomenclature_inst = _(CONFIG_CONFASSISTANT['CONSORTIUM']['nomenclature_institution']);
 
         $this->knownFederations = [
             'AD' => _("Andorra"),
@@ -353,7 +396,6 @@ class CAT extends Entity {
         ];
 
         $this->languageInstance->setTextDomain($oldlocale);
-
     }
 
     /**
@@ -378,7 +420,7 @@ class CAT extends Entity {
         return $dbresult->instcount;
     }
 
-        /**
+    /**
      * Lists all identity providers in the database
      * adding information required by DiscoJuice.
      * @param int $activeOnly if and set to non-zero will
@@ -389,25 +431,21 @@ class CAT extends Entity {
         $handle = DBConnection::handle("INST");
         $handle->exec("SET SESSION group_concat_max_len=10000");
         $query = "SELECT distinct institution.inst_id AS inst_id, institution.country AS country,
-                     group_concat(concat_ws('===',institution_option.option_name,LEFT(institution_option.option_value,200)) separator '---') AS options
+                     group_concat(concat_ws('===',institution_option.option_name,LEFT(institution_option.option_value,200), institution_option.option_lang) separator '---') AS options
                      FROM institution ";
         if ($activeOnly == 1) {
-            $query .= "JOIN profile ON institution.inst_id = profile.inst_id ";
+            $query .= "JOIN v_active_inst ON institution.inst_id = v_active_inst.inst_id ";
         }
         $query .= "JOIN institution_option ON institution.inst_id = institution_option.institution_id ";
         $query .= "WHERE (institution_option.option_name = 'general:instname' 
                           OR institution_option.option_name = 'general:geo_coordinates'
                           OR institution_option.option_name = 'general:logo_file') ";
-        if ($activeOnly == 1) {
-            $query .= "AND profile.showtime = 1 ";
-        }
-        if ($country) {
-            // escape the parameter
-            $country = $handle->escapeValue($country);
-            $query .= "AND institution.country = '$country' ";
-        }
+
+        $query .= ($country ? "AND institution.country = ? " : "");
+
         $query .= "GROUP BY institution.inst_id ORDER BY inst_id";
-        $allIDPs = $handle->exec($query);
+        
+        $allIDPs = ($country ? $handle->exec($query, "s", $country) : $handle->exec($query));
         $returnarray = [];
         while ($queryResult = mysqli_fetch_object($allIDPs)) {
             $institutionOptions = explode('---', $queryResult->options);
@@ -424,11 +462,14 @@ class CAT extends Entity {
                         $oneInstitutionResult['icon'] = $queryResult->inst_id;
                         break;
                     case 'general:geo_coordinates':
-                        $at1 = unserialize($opt[1]);
+                        $at1 = json_decode($opt[1], true);
                         $geo[] = $at1;
                         break;
                     case 'general:instname':
-                        $names[] = ['value' => $opt[1]];
+                        $names[] = [
+                            'lang' => $opt[2],
+                            'value' => $opt[1]
+                        ];
                         break;
                     default:
                         break;
@@ -437,8 +478,8 @@ class CAT extends Entity {
 
             $name = _("Unnamed Entity");
             if (count($names) != 0) {
-                $langObject = new Language();
-                $name = getLocalisedValue($names, $langObject->getLang());
+                $langObject = new \core\common\Language();
+                $name = $langObject->getLocalisedValue($names);
             }
             $oneInstitutionResult['title'] = $name;
             if (count($geo) > 0) {
@@ -460,12 +501,11 @@ class CAT extends Entity {
         $handle = DBConnection::handle(CAT::DB_TYPE);
         $returnArray = []; // in if -> the while might never be executed, so initialise
         if ($activeOnly) {
-            $federations = $handle->exec("SELECT DISTINCT LOWER(institution.country) AS country FROM institution JOIN profile
+            $federations = $handle->exec("SELECT DISTINCT UPPER(institution.country) AS country FROM institution JOIN profile
                           ON institution.inst_id = profile.inst_id WHERE profile.showtime = 1 ORDER BY country");
             while ($activeFederations = mysqli_fetch_object($federations)) {
-                $fedIdentifier = $activeFederations->country;
-                $capFedName = strtoupper($fedIdentifier);
-                $returnArray[$capFedName] = isset($this->knownFederations[$capFedName]) ? $this->knownFederations[$capFedName] : $capFedName;
+                $fedIdentifier = $activeFederations->country; // UPPER() has capitalised this for us
+                $returnArray[$fedIdentifier] = isset($this->knownFederations[$fedIdentifier]) ? $this->knownFederations[$fedIdentifier] : $fedIdentifier;
             }
         } else {
             $returnArray = $this->knownFederations;
@@ -474,10 +514,10 @@ class CAT extends Entity {
         $this->languageInstance->setTextDomain($olddomain);
         return($returnArray);
     }
-    
-        public function getExternalDBEntityDetails($externalId, $realm = NULL) {
+
+    public function getExternalDBEntityDetails($externalId, $realm = NULL) {
         $list = [];
-        if (CONFIG['CONSORTIUM']['name'] == "eduroam" && isset(CONFIG['CONSORTIUM']['deployment-voodoo']) && CONFIG['CONSORTIUM']['deployment-voodoo'] == "Operations Team") { // SW: APPROVED
+        if (CONFIG_CONFASSISTANT['CONSORTIUM']['name'] == "eduroam" && isset(CONFIG_CONFASSISTANT['CONSORTIUM']['deployment-voodoo']) && CONFIG_CONFASSISTANT['CONSORTIUM']['deployment-voodoo'] == "Operations Team") { // SW: APPROVED
             $scanforrealm = "";
             if ($realm !== NULL) {
                 $scanforrealm = "OR inst_realm LIKE '%$realm%'";
@@ -497,10 +537,11 @@ class CAT extends Entity {
                     $email2 = explode(',', $email1[1]);
                     $list['admins'][] = ["email" => $email2[0]];
                 }
-                $list['country'] = $externalEntityQuery->country;
+                $list['country'] = strtoupper($externalEntityQuery->country);
                 $list['realmlist'] = $externalEntityQuery->realmlist;
             }
         }
         return $list;
     }
+
 }

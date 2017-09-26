@@ -1,14 +1,14 @@
 <?php
+/* 
+ *******************************************************************************
+ * Copyright 2011-2017 DANTE Ltd. and GÉANT on behalf of the GN3, GN3+, GN4-1 
+ * and GN4-2 consortia
+ *
+ * License: see the web/copyright.php file in the file structure
+ *******************************************************************************
+ */
 
-/* * ********************************************************************************
- * (c) 2011-15 GÉANT on behalf of the GN3, GN3plus and GN4 consortia
- * License: see the LICENSE file in the root directory
- * ********************************************************************************* */
-?>
-<?php
-
-require_once("ProfileRADIUS.php");
-require_once("ProfileSilverbullet.php");
+namespace core;
 
 /**
  * This factory class generates either a ProfileRADIUS or a ProfileSilverbullet
@@ -21,6 +21,8 @@ class ProfileFactory {
      * find out, and return an instance of the instantiated sub-class as appropriate
      * 
      * @param int $profileId ID of the profile in DB
+     * @param IdP $idpObject optional. If the IdP is already instantiated then the instance can be passed here to avoid another instantiation
+     * 
      * @return AbstractProfile a sub-class of AbstractProfile matching the type
      */
     public static function instantiate($profileId, $idpObject = NULL) {
@@ -28,7 +30,7 @@ class ProfileFactory {
         // switch to the other if our guess was wrong
         $attempt = new ProfileRADIUS($profileId, $idpObject);
         $methods = $attempt->getEapMethodsinOrderOfPreference();
-        if ((count($methods) == 1) && $methods[0] == EAPTYPE_SILVERBULLET) {
+        if ((count($methods) == 1) && $methods[0]->getArrayRep() == \core\common\EAP::EAPTYPE_SILVERBULLET) {
             return new ProfileSilverbullet($profileId, $idpObject);
         }
         return $attempt;

@@ -1,11 +1,13 @@
 <?php
 
-/* * ********************************************************************************
- * (c) 2011-15 GÉANT on behalf of the GN3, GN3plus and GN4 consortia
- * License: see the LICENSE file in the root directory
- * ********************************************************************************* */
-?>
-<?php
+/*
+ * ******************************************************************************
+ * Copyright 2011-2017 DANTE Ltd. and GÉANT on behalf of the GN3, GN3+, GN4-1 
+ * and GN4-2 consortia
+ *
+ * License: see the web/copyright.php file in the file structure
+ * ******************************************************************************
+ */
 
 /**
  * This file contains the installer for iOS devices and Apple 10.7 Lion
@@ -17,8 +19,10 @@
 /**
  * 
  */
-require_once('DeviceConfig.php');
-require_once('Helper.php');
+
+namespace devices\apple_mobileconfig;
+
+use \Exception;
 
 /**
  * This is the main implementation class of the module
@@ -29,8 +33,10 @@ require_once('Helper.php');
  *
  * @package Developer
  */
-abstract class mobileconfigSuperclass extends DeviceConfig {
+abstract class mobileconfigSuperclass extends \core\DeviceConfig {
 
+    private $instName;
+    private $profileName;
     private $massagedInst;
     private $massagedProfile;
     private $massagedCountry;
@@ -40,7 +46,46 @@ abstract class mobileconfigSuperclass extends DeviceConfig {
 
     public function __construct() {
         parent::__construct();
+        // that's what all variants support. Sub-classes can change it.
+        $this->setSupportedEapMethods([\core\common\EAP::EAPTYPE_PEAP_MSCHAP2, \core\common\EAP::EAPTYPE_TTLS_PAP, \core\common\EAP::EAPTYPE_TTLS_MSCHAP2, \core\common\EAP::EAPTYPE_SILVERBULLET]);
     }
+
+    private function massageName($input) {
+        return htmlspecialchars(strtolower(iconv("UTF-8", "US-ASCII//TRANSLIT", preg_replace(['/ /', '/\//'], '_', $input))), ENT_XML1, 'UTF-8');
+    }
+
+    private function generalPayload() {
+        $tagline = sprintf(_("Network configuration profile '%s' of '%s' - provided by %s"), htmlspecialchars($this->profileName, ENT_XML1, 'UTF-8'), htmlspecialchars($this->instName, ENT_XML1, 'UTF-8'), CONFIG_CONFASSISTANT['CONSORTIUM']['display_name']);
+
+        $eapType = $this->selectedEap;
+        // simpler message for silverbullet
+        if ($eapType['INNER'] == \core\common\EAP::NE_SILVERBULLET) {
+            $tagline = sprintf(_("%s configuration for IdP '%s' - provided by %s"), \core\ProfileSilverbullet::PRODUCTNAME, htmlspecialchars($this->instName, ENT_XML1, 'UTF-8'), CONFIG_CONFASSISTANT['CONSORTIUM']['display_name']);
+        }
+
+        return "</array>
+      <key>PayloadDescription</key>
+         <string>$tagline</string>
+      <key>PayloadDisplayName</key>
+         <string>" . CONFIG_CONFASSISTANT['CONSORTIUM']['display_name'] . "</string>
+      <key>PayloadIdentifier</key>
+         <string>" . self::$iPhonePayloadPrefix . ".$this->massagedConsortium.$this->massagedCountry.$this->massagedInst.$this->massagedProfile.$this->lang</string>
+      <key>PayloadOrganization</key>
+         <string>" . htmlspecialchars(iconv("UTF-8", "UTF-8//IGNORE", $this->attributes['general:instname'][0]), ENT_XML1, 'UTF-8') . ( $this->attributes['internal:profile_count'][0] > 1 ? " (" . htmlspecialchars(iconv("UTF-8", "UTF-8//IGNORE", $this->attributes['profile:name'][0]), ENT_XML1, 'UTF-8') . ")" : "") . "</string>
+      <key>PayloadType</key>
+         <string>Configuration</string>
+      <key>PayloadUUID</key>
+         <string>" . $this->uuid('', self::$iPhonePayloadPrefix . $this->massagedConsortium . $this->massagedCountry . $this->massagedInst . $this->massagedProfile) . "</string>
+      <key>PayloadVersion</key>
+         <integer>1</integer>";
+    }
+
+    const FILE_START = "<?xml version=\"1.0\" encoding=\"utf-8\"?>
+<!DOCTYPE plist PUBLIC \"-//Apple Computer//DTD PLIST 1.0//EN\"
+\"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">
+<plist version=\"1.0\">
+<dict>";
+    const FILE_END = "</dict></plist>";
 
     /**
      * prepare a zip archive containing files and settings which normally would be used inside the module to produce an installer
@@ -71,37 +116,22 @@ abstract class mobileconfigSuperclass extends DeviceConfig {
         // remove spaces and slashes (filename!), make sure it's simple ASCII only, then lowercase it
         // also escape htmlspecialchars
         // not all names and profiles have a name, so be prepared
-        $instName = _("Unnamed Institution");
-        if (!empty($this->attributes['general:instname'][0])) {
-            $instName = $this->attributes['general:instname'][0];
-        }
 
-        $profileName = _("Unnamed Profile");
+        $this->loggerInstance->debug(5, "List of available attributes: " . var_export($this->attributes, TRUE));
 
-        if (!empty($this->attributes['profile:name'][0])) {
-            $profileName = $this->attributes['profile:name'][0];
-        }
+        $this->instName = $this->attributes['general:instname'][0] ?? sprintf(_("Unnamed %s"),$this->nomenclature_inst);
+        $this->profileName = $this->attributes['profile:name'][0] ?? _("Unnamed Profile");
 
-        $this->massagedInst = htmlspecialchars(strtolower(iconv("UTF-8", "US-ASCII//TRANSLIT", preg_replace(['/ /', '/\//'], '_', $instName))), ENT_XML1, 'UTF-8');
-        $this->massagedProfile = htmlspecialchars(strtolower(iconv("UTF-8", "US-ASCII//TRANSLIT", preg_replace(['/ /', '/\//'], '_', $profileName))), ENT_XML1, 'UTF-8');
-        $this->massagedCountry = htmlspecialchars(strtolower(iconv("UTF-8", "US-ASCII//TRANSLIT", preg_replace(['/ /', '/\//'], '_', $this->attributes['internal:country'][0]))), ENT_XML1, 'UTF-8');
-        $this->massagedConsortium = htmlspecialchars(strtolower(iconv("UTF-8", "US-ASCII//TRANSLIT", preg_replace(['/ /', '/\//'], '_', CONFIG['CONSORTIUM']['name']))), ENT_XML1, 'UTF-8');
+        $this->massagedInst = $this->massageName($this->instName);
+        $this->massagedProfile = $this->massageName($this->profileName);
+        $this->massagedCountry = $this->massageName($this->attributes['internal:country'][0]);
+        $this->massagedConsortium = $this->massageName(CONFIG_CONFASSISTANT['CONSORTIUM']['name']);
         $this->lang = preg_replace('/\..+/', '', setlocale(LC_ALL, "0"));
 
-        $outerId = $this->determineOuterIdString();
-
-        $ssidList = $this->attributes['internal:SSID'];
-        $consortiumOIList = $this->attributes['internal:consortia'];
-        $serverNames = $this->attributes['eap:server_name'];
-        $cAUUIDs = $this->listCAUuids($this->attributes['internal:CAs'][0]);
         $eapType = $this->selectedEap;
-        $outputXml = "";
-        $outputXml .= "<?xml version=\"1.0\" encoding=\"utf-8\"?>
-<!DOCTYPE plist PUBLIC \"-//Apple Computer//DTD PLIST 1.0//EN\"
-\"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">
-<plist version=\"1.0\">
-   <dict>
-      <key>PayloadContent</key>
+
+        $outputXml = self::FILE_START;
+        $outputXml .= "<key>PayloadContent</key>
          <array>";
 
         // did the admin want wired config?
@@ -110,26 +140,24 @@ abstract class mobileconfigSuperclass extends DeviceConfig {
             $includeWired = TRUE;
         }
 
-        $outputXml .= $this->allNetworkBlocks($ssidList, $consortiumOIList, $serverNames, $cAUUIDs, $eapType, $includeWired, $outerId);
+        // if we are in silverbullet, we will need a whole own block for the client credential
+        // and also for the profile expiry
+
+        $clientCertUUID = NULL;
+        if ($eapType['INNER'] == \core\common\EAP::NE_SILVERBULLET) {
+            $blockinfo = $this->clientP12Block();
+            $outputXml .= $blockinfo['block'];
+            $clientCertUUID = $blockinfo['UUID'];
+        }
 
         $outputXml .= $this->allCA($this->attributes['internal:CAs'][0]);
 
-        $outputXml .= "
-         </array>
-      <key>PayloadDescription</key>
-         <string>" . sprintf(_("Network configuration profile '%s' of '%s' - provided by %s"), htmlspecialchars($profileName, ENT_XML1, 'UTF-8'), htmlspecialchars($instName, ENT_XML1, 'UTF-8'), CONFIG['CONSORTIUM']['name']) . "</string>
-      <key>PayloadDisplayName</key>
-         <string>" . CONFIG['CONSORTIUM']['name'] . "</string>
-      <key>PayloadIdentifier</key>
-         <string>" . mobileconfigSuperclass::$iPhonePayloadPrefix . ".$this->massagedConsortium.$this->massagedCountry.$this->massagedInst.$this->massagedProfile.$this->lang</string>
-      <key>PayloadOrganization</key>
-         <string>" . htmlspecialchars(iconv("UTF-8", "UTF-8//IGNORE", $this->attributes['general:instname'][0]), ENT_XML1, 'UTF-8') . ( $this->attributes['internal:profile_count'][0] > 1 ? " (" . htmlspecialchars(iconv("UTF-8", "UTF-8//IGNORE", $this->attributes['profile:name'][0]), ENT_XML1, 'UTF-8') . ")" : "") . "</string>
-      <key>PayloadType</key>
-         <string>Configuration</string>
-      <key>PayloadUUID</key>
-         <string>" . uuid('', mobileconfigSuperclass::$iPhonePayloadPrefix . $this->massagedConsortium . $this->massagedCountry . $this->massagedInst . $this->massagedProfile) . "</string>
-      <key>PayloadVersion</key>
-         <integer>1</integer>";
+        $outputXml .= $this->allNetworkBlocks(
+                $this->attributes['internal:SSID'], $this->attributes['internal:consortia'], $this->attributes['eap:server_name'], $this->listCAUuids($this->attributes['internal:CAs'][0]), $this->selectedEap, $includeWired, $clientCertUUID, $this->determineOuterIdString());
+
+
+        $outputXml .= $this->generalPayload();
+
         if (isset($this->attributes['support:info_file'])) {
             $outputXml .= "
       <key>ConsentText</key>
@@ -139,7 +167,10 @@ abstract class mobileconfigSuperclass extends DeviceConfig {
          </dict>
          ";
         }
-        $outputXml .= "</dict></plist>";
+        if ($eapType['INNER'] == \core\common\EAP::NE_SILVERBULLET) {
+            $outputXml .= $this->expiryBlock();
+        }
+        $outputXml .= self::FILE_END;
 
         $xmlFile = fopen('installer_profile', 'w');
         fwrite($xmlFile, $outputXml);
@@ -174,9 +205,9 @@ abstract class mobileconfigSuperclass extends DeviceConfig {
             $out .= " " . sprintf(_("(%d times)"), $certCount);
         }
         $out .= "</li>";
-        $out .= "<li>" . _("to enter the username and password of your institution");
+        $out .= "<li>" . sprintf(_("to enter the username and password of your %s"), $this->nomenclature_inst);
         if ($ssidCount > 1) {
-            $out .= " " . sprintf(_("(%d times each, because %s is installed for %d SSIDs)"), $ssidCount, CONFIG['CONSORTIUM']['name'], $ssidCount);
+            $out .= " " . sprintf(_("(%d times each, because %s is installed for %d SSIDs)"), $ssidCount, CONFIG_CONFASSISTANT['CONSORTIUM']['display_name'], $ssidCount);
         }
         $out .= "</li>";
         $out .= "</ul>";
@@ -199,7 +230,7 @@ abstract class mobileconfigSuperclass extends DeviceConfig {
                <key>ServiceProviderRoamingEnabled</key>
                <true/>
                <key>DisplayedOperatorName</key>
-               <string>" . CONFIG['CONSORTIUM']['name'] . "</string>";
+               <string>" . CONFIG_CONFASSISTANT['CONSORTIUM']['display_name'] . " via Passpoint</string>";
         // if we don't know the realm, omit the entire DomainName key
         if (isset($this->attributes['internal:realm'])) {
             $retval .= "<key>DomainName</key>
@@ -214,36 +245,27 @@ abstract class mobileconfigSuperclass extends DeviceConfig {
             $retval .= "<string>$oiValue</string>";
         }
         $retval .= "</array>";
+        // this is an undocmented value found on the net. Does it do something useful?
+        $retval .= "<key>_UsingHotspot20</key>
+                <true/>
+                ";
+        // do we need to set NAIRealmName ? In Rel 1, probably yes, in Rel 2, 
+        // no because ConsortiumOI is enough.
+        // but which release is OS X doing? And what should we fill in, given
+        // that we have thousands of realms? Try just eduroam.org
+        if (CONFIG_CONFASSISTANT['CONSORTIUM']['name'] == "eduroam") {
+            $retval .= "<key>NAIRealmNames</key>
+                <array>
+                    <string>eduroam.org</string>
+                </array>";
+        }
         return $retval;
     }
 
     private $serial;
 
-    private function networkBlock($ssid, $consortiumOi, $serverList, $cAUUIDList, $eapType, $wired, $realm = 0) {
-        $escapedSSID = htmlspecialchars($ssid, ENT_XML1, 'UTF-8');
-
-        $payloadIdentifier = "wifi." . $this->serial;
-        $payloadShortName = sprintf(_("SSID %s"), $escapedSSID);
-        $payloadName = sprintf(_("%s configuration for network name %s"), CONFIG['CONSORTIUM']['name'], $escapedSSID);
-        $encryptionTypeString = "WPA";
-
-        if ($wired) { // override the above defaults for wired interfaces
-            $payloadIdentifier = "firstactiveethernet";
-            $payloadShortName = _("Wired Network");
-            $payloadName = sprintf(_("%s configuration for wired network"), CONFIG['CONSORTIUM']['name']);
-            $encryptionTypeString = "any";
-        }
-
-        if (count($consortiumOi) > 0) { // override the above defaults for HS20 configuration
-            $payloadIdentifier = "hs20";
-            $payloadShortName = _("Hotspot 2.0 Settings");
-            $payloadName = sprintf(_("%s Hotspot 2.0 configuration"), CONFIG['CONSORTIUM']['name']);
-            $encryptionTypeString = "WPA";
-        }
-
-        $retval = "
-            <dict>
-               <key>EAPClientConfiguration</key>
+    private function eapBlock($eapType, $realm, $cAUUIDList, $serverList) {
+        $retval = "<key>EAPClientConfiguration</key>
                   <dict>
                       <key>AcceptEAPTypes</key>
                          <array>
@@ -282,9 +304,36 @@ abstract class mobileconfigSuperclass extends DeviceConfig {
         $retval .= "
                          </array>
                       <key>TTLSInnerAuthentication</key>
-                         <string>" . ($eapType['INNER'] == NONE ? "PAP" : "MSCHAPv2") . "</string>
-                   </dict>
-               <key>EncryptionType</key>
+                         <string>" . ($eapType['INNER'] == \core\common\EAP::NONE ? "PAP" : "MSCHAPv2") . "</string>
+                   </dict>";
+        return $retval;
+    }
+
+    private function networkBlock($ssid, $consortiumOi, $serverList, $cAUUIDList, $eapType, $wired, $clientCertUUID, $realm = 0) {
+        $escapedSSID = htmlspecialchars($ssid, ENT_XML1, 'UTF-8');
+
+        $payloadIdentifier = "wifi." . $this->serial;
+        $payloadShortName = sprintf(_("SSID %s"), $escapedSSID);
+        $payloadName = sprintf(_("%s configuration for network name %s"), CONFIG_CONFASSISTANT['CONSORTIUM']['display_name'], $escapedSSID);
+        $encryptionTypeString = "WPA";
+
+        if ($wired) { // override the above defaults for wired interfaces
+            $payloadIdentifier = "firstactiveethernet";
+            $payloadShortName = _("Wired Network");
+            $payloadName = sprintf(_("%s configuration for wired network"), CONFIG_CONFASSISTANT['CONSORTIUM']['display_name']);
+            $encryptionTypeString = "any";
+        }
+
+        if (count($consortiumOi) > 0) { // override the above defaults for HS20 configuration
+            $payloadIdentifier = "hs20";
+            $payloadShortName = _("Hotspot 2.0 Settings");
+            $payloadName = sprintf(_("%s Hotspot 2.0 configuration"), CONFIG_CONFASSISTANT['CONSORTIUM']['display_name']);
+            $encryptionTypeString = "WPA";
+        }
+
+        $retval = "<dict>";
+        $retval .= $this->eapBlock($eapType, $realm, $cAUUIDList, $serverList);
+        $retval .= "<key>EncryptionType</key>
                   <string>$encryptionTypeString</string>
                <key>HIDDEN_NETWORK</key>
                   <true />
@@ -293,7 +342,7 @@ abstract class mobileconfigSuperclass extends DeviceConfig {
                <key>PayloadDisplayName</key>
                   <string>$payloadShortName</string>
                <key>PayloadIdentifier</key>
-                  <string>" . mobileconfigSuperclass::$iPhonePayloadPrefix . ".$this->massagedConsortium.$this->massagedCountry.$this->massagedInst.$this->massagedProfile.$this->lang.$payloadIdentifier</string>
+                  <string>" . self::$iPhonePayloadPrefix . ".$this->massagedConsortium.$this->massagedCountry.$this->massagedInst.$this->massagedProfile.$this->lang.$payloadIdentifier</string>
                <key>PayloadOrganization</key>
                   <string>" . $this->massagedConsortium . ".1x-config.org</string>
                <key>PayloadType</key>
@@ -311,9 +360,16 @@ abstract class mobileconfigSuperclass extends DeviceConfig {
                      <string>System</string>
                   </array>";
         }
+        if ($eapType['INNER'] == \core\common\EAP::NE_SILVERBULLET) {
+            if ($clientCertUUID === NULL) {
+                throw new Exception("Silverbullet REQUIRES a client certificate and we need to know the UUID!");
+            }
+            $retval .= "<key>PayloadCertificateUUID</key>
+                        <string>$clientCertUUID</string>";
+        }
         $retval .= "
                <key>PayloadUUID</key>
-                  <string>" . uuid() . "</string>
+                  <string>" . $this->uuid() . "</string>
                <key>PayloadVersion</key>
                   <integer>1</integer>";
         if (!$wired && count($consortiumOi) == 0) {
@@ -340,15 +396,15 @@ abstract class mobileconfigSuperclass extends DeviceConfig {
 	<key>IsHotspot</key>
 	<false/>
 	<key>PayloadDescription</key>
-	<string>" . sprintf(_("This SSID should not be used after bootstrapping %s"), CONFIG['CONSORTIUM']['name']) . "</string>
+	<string>" . sprintf(_("This SSID should not be used after bootstrapping %s"), CONFIG_CONFASSISTANT['CONSORTIUM']['display_name']) . "</string>
 	<key>PayloadDisplayName</key>
 	<string>" . _("Disabled WiFi network") . "</string>
 	<key>PayloadIdentifier</key>
-	<string>" . mobileconfigSuperclass::$iPhonePayloadPrefix . ".$this->massagedConsortium.$this->massagedCountry.$this->massagedInst.$this->massagedProfile.$this->lang.wifi.disabled.$sequence</string>
+	<string>" . self::$iPhonePayloadPrefix . ".$this->massagedConsortium.$this->massagedCountry.$this->massagedInst.$this->massagedProfile.$this->lang.wifi.disabled.$sequence</string>
 	<key>PayloadType</key>
 	<string>com.apple.wifi.managed</string>
 	<key>PayloadUUID</key>
-	<string>" . uuid() . "</string>
+	<string>" . $this->uuid() . "</string>
 	<key>PayloadVersion</key>
 	<real>1</real>";
         if (get_class($this) != "Device_mobileconfig_ios_56") {
@@ -362,17 +418,17 @@ abstract class mobileconfigSuperclass extends DeviceConfig {
         return $retval;
     }
 
-    private function allNetworkBlocks($sSIDList, $consortiumOIList, $serverNameList, $cAUUIDList, $eapType, $includeWired, $realm = 0) {
+    private function allNetworkBlocks($sSIDList, $consortiumOIList, $serverNameList, $cAUUIDList, $eapType, $includeWired, $clientcertUUID, $realm = 0) {
         $retval = "";
         $this->serial = 0;
         foreach (array_keys($sSIDList) as $ssid) {
-            $retval .= $this->networkBlock($ssid, NULL, $serverNameList, $cAUUIDList, $eapType, FALSE, $realm);
+            $retval .= $this->networkBlock($ssid, NULL, $serverNameList, $cAUUIDList, $eapType, FALSE, $clientcertUUID, $realm);
         }
         if ($includeWired) {
-            $retval .= $this->networkBlock("IRRELEVANT", NULL, $serverNameList, $cAUUIDList, $eapType, TRUE, $realm);
+            $retval .= $this->networkBlock("IRRELEVANT", NULL, $serverNameList, $cAUUIDList, $eapType, TRUE, $clientcertUUID, $realm);
         }
         if (count($consortiumOIList) > 0) {
-            $retval .= $this->networkBlock("IRRELEVANT", $consortiumOIList, $serverNameList, $cAUUIDList, $eapType, FALSE, $realm);
+            $retval .= $this->networkBlock("IRRELEVANT", $consortiumOIList, $serverNameList, $cAUUIDList, $eapType, FALSE, $clientcertUUID, $realm);
         }
         if (isset($this->attributes['media:remove_SSID'])) {
             foreach ($this->attributes['media:remove_SSID'] as $index => $removeSSID) {
@@ -390,6 +446,49 @@ abstract class mobileconfigSuperclass extends DeviceConfig {
             $iterator = $iterator + 1;
         }
         return $retval;
+    }
+
+    private function clientP12Block() {
+        if (!is_array($this->clientCert)) {
+            throw new Exception("the client block was called but there is no client certificate!");
+        }
+        $binaryBlob = $this->clientCert["certdata"];
+        $mimeBlob = base64_encode($binaryBlob);
+        $mimeFormatted = chunk_split($mimeBlob, 52, "\r\n");
+        $payloadUUID = $this->uuid('', $mimeBlob);
+        return ["block" => "<dict>" .
+            // we don't include the import password. It's displayed on screen, and should be input by the user.
+            // <key>Password</key>
+            //   <string>" . $this->clientCert['password'] . "</string>
+            "<key>PayloadCertificateFileName</key>
+                     <string>cert-cli.pfx</string>
+                  <key>PayloadContent</key>
+                     <data>
+$mimeFormatted
+                     </data>
+                  <key>PayloadDescription</key>
+                     <string>MIME Base-64 encoded PKCS#12 Client Certificate</string>
+                  <key>PayloadDisplayName</key>
+                     <string>" . _("eduroam user certificate") . "</string>
+                  <key>PayloadIdentifier</key>
+                     <string>com.apple.security.pkcs12.$payloadUUID</string>
+                  <key>PayloadType</key>
+                     <string>com.apple.security.pkcs12</string>
+                  <key>PayloadUUID</key>
+                     <string>$payloadUUID</string>
+                  <key>PayloadVersion</key>
+                     <integer>1</integer>
+                </dict>",
+            "UUID" => $payloadUUID,];
+    }
+
+    private function expiryBlock() {
+        if (!is_array($this->clientCert)) {
+            throw new Exception("the expiry block was called but there is no client certificate!");
+        }
+        $expiryTime = $this->clientCert['expiry'];
+        return "<key>RemovalDate</key>
+        <date>$expiryTime</date>";
     }
 
     private function caBlob($uuid, $pem, $serial) {
@@ -410,7 +509,7 @@ abstract class mobileconfigSuperclass extends DeviceConfig {
                <key>PayloadDisplayName</key>
                <string>" . _("Identity Provider's CA") . "</string>
                <key>PayloadIdentifier</key>
-               <string>" . mobileconfigSuperclass::$iPhonePayloadPrefix . ".$this->massagedConsortium.$this->massagedCountry.$this->massagedInst.$this->massagedProfile.credential.$serial</string>
+               <string>" . self::$iPhonePayloadPrefix . ".$this->massagedConsortium.$this->massagedCountry.$this->massagedInst.$this->massagedProfile.credential.$serial</string>
                <key>PayloadOrganization</key>
                <string>" . $this->massagedConsortium . ".1x-config.org</string>
                <key>PayloadType</key>

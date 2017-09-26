@@ -1,8 +1,14 @@
 <?php
-/* * *********************************************************************************
- * (c) 2011-15 GÉANT on behalf of the GN3, GN3plus and GN4 consortia
- * License: see the LICENSE file in the root directory
- * ********************************************************************************* */
+/*
+ * ******************************************************************************
+ * Copyright 2011-2017 DANTE Ltd. and GÉANT on behalf of the GN3, GN3+, GN4-1 
+ * and GN4-2 consortia
+ *
+ * License: see the web/copyright.php file in the file structure
+ * ******************************************************************************
+ */
+?>
+<?php
 /**
  * Front-end for the user GUI
  *
@@ -10,17 +16,13 @@
  * @package UserGUI
  */
 include(dirname(dirname(__FILE__)) . "/config/_config.php");
-require_once("CAT.php");
-require_once("resources/inc/footer.php");
-
 ?>
 <!DOCTYPE html>
 <html xmlns="http://www.w3.org/1999/xhtml" lang="en">
     <head lang="en"> 
         <link rel="stylesheet" media="screen" type="text/css" href="resources/css/cat.css.php" />
-        <link rel="stylesheet" media="screen" type="text/css" href="resources/css/cat-user.css" />
     </head>
-    <body>
+    <body style='background: #fff url(resources/images/bg_grey_tile.png) repeat-x;'>
         <div id="heading">
             <?php
             print '<img src="resources/images/consortium_logo.png" alt="Consortium Logo" style="float:right; padding-right:20px; padding-top:20px"/>';
@@ -194,17 +196,14 @@ Andreas
                 <tr>
                     <td style="padding-left:20px; padding-right:20px; text-align:left; vertical-align:top;">
                         <?php
-                        $cat = new CAT();
+                        $cat = new \core\CAT();
                         echo $cat->CAT_COPYRIGHT;
                         ?>
                     </td>
                     <td style="padding-left:80px; padding-right:20px; text-align:right; vertical-align:top;">
                         <?php
-                        if (CONFIG['CONSORTIUM']['name'] == "eduroam" && isset(CONFIG['CONSORTIUM']['deployment-voodoo']) && CONFIG['CONSORTIUM']['deployment-voodoo'] == "Operations Team") {// SW: APPROVED
-                            echo attributionEurope();
-                        } else {
-                            echo "&nbsp;";
-                        }
+                        $deco = new \web\lib\admin\PageDecoration();
+                        echo $deco->attributionEurope();
                         ?>
                     </td>
                 </tr>

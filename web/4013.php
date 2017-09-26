@@ -1,30 +1,32 @@
 <?php
-/* * *********************************************************************************
- * (c) 2011-15 GÉANT on behalf of the GN3, GN3plus and GN4 consortia
- * License: see the LICENSE file in the root directory
- * ********************************************************************************* */
+/* 
+ *******************************************************************************
+ * Copyright 2011-2017 DANTE Ltd. and GÉANT on behalf of the GN3, GN3+, GN4-1 
+ * and GN4-2 consortia
+ *
+ * License: see the web/copyright.php file in the file structure
+ *******************************************************************************
+ */
 ?>
 <?php
 /**
- * 404 error handler
+ * 401 and 403 error handler
  *
  * @author Stefan Winter <stefan.winter@restena.lu>
  * @package UserGUI
  */
 error_reporting(E_ALL | E_STRICT);
 include(dirname(dirname(__FILE__)) . "/config/_config.php");
-require_once("Language.php");
-require_once("resources/inc/header.php");
-require_once("resources/inc/footer.php");
 
-$langObject = new Language();
+$langObject = new \core\common\Language();
 $langObject->setTextDomain("web_user");
 
-defaultPagePrelude(CONFIG['APPEARANCE']['productname_long'], FALSE);
+$deco = new \web\lib\admin\PageDecoration();
+
+echo $deco->defaultPagePrelude(CONFIG['APPEARANCE']['productname_long'], FALSE);
 ?>
-<link rel="stylesheet" media="screen" type="text/css" href="<?php echo dirname($_SERVER['SCRIPT_NAME'])?>/resources/css/cat-user.css"/>
 </head>
-<body>
+<body style='background: #fff url(resources/images/bg_grey_tile.png) repeat-x;'>
     <div id="heading">
         <?php
         print '<img src="'. dirname($_SERVER['SCRIPT_NAME']) .'/resources/images/consortium_logo.png" alt="Consortium Logo" style="float:right; padding-right:20px; padding-top:20px"/>';
@@ -47,4 +49,4 @@ defaultPagePrelude(CONFIG['APPEARANCE']['productname_long'], FALSE);
         <h2>401/403</h2>
         <p><?php echo sprintf(_("Your mistake? Our error? Who knows! Maybe you should go back to the <a href='%s'>Start Page</a>."), dirname($_SERVER['SCRIPT_NAME']) . '?lang=' . $langObject->getLang())?></p>
     </div>
-        <?php footer();
+        <?php echo $deco->footer();

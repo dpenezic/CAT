@@ -1,25 +1,24 @@
 <?php
-
-/* * *********************************************************************************
- * (c) 2011-15 GÉANT on behalf of the GN3, GN3plus and GN4 consortia
- * License: see the LICENSE file in the root directory
- * ********************************************************************************* */
+/* 
+ *******************************************************************************
+ * Copyright 2011-2017 DANTE Ltd. and GÉANT on behalf of the GN3, GN3+, GN4-1 
+ * and GN4-2 consortia
+ *
+ * License: see the web/copyright.php file in the file structure
+ *******************************************************************************
+ */
 
 // please run this as a cron job every hour
 
 require_once(dirname(dirname(__FILE__)) . "/config/_config.php");
-require_once("CAT.php");
-require_once("Federation.php");
-require_once("UserManagement.php");
-require_once("User.php");
 
 // iterate through all federations and see if there are recently expired 
 // invitations for any of them
 
-$mgmt_object = new UserManagement();
+$mgmt_object = new \core\UserManagement();
 $invitation_list = $mgmt_object->listRecentlyExpiredInvitations();
 
-$cat = new CAT();
+$cat = new \core\CAT();
 
 foreach ($cat->knownFederations as $federation => $federation_name) {
     // construct list of invitations in this federation
@@ -41,11 +40,11 @@ foreach ($cat->knownFederations as $federation => $federation_name) {
         return;
     }
 
-    $this_fed = new Federation(reset($thisfedlist)["country"]);
+    $this_fed = new \core\Federation(reset($thisfedlist)["country"]);
     $admins = $this_fed->listFederationAdmins();
     $mailtext = "Hello,
 
-invitation tokens for the following new institutions have recently expired:
+invitation tokens for the following new ". CONFIG_CONFASSISTANT['CONSORTIUM']['nomenclature_institution'] ." have recently expired:
 
 ";
     foreach ($listofinstnames as $instname) {
@@ -55,7 +54,7 @@ invitation tokens for the following new institutions have recently expired:
     if ($numberofexistingidps > 0) {
         $mailtext .= "
 
-Additionally, $numberofexistingidps invitations for existing institutions have expired.
+Additionally, $numberofexistingidps invitations for an existing ". CONFIG_CONFASSISTANT['CONSORTIUM']['nomenclature_institution']." have expired.
         ";
     }
     $mailtext .= "
